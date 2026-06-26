@@ -23,9 +23,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container:
       image: termux/termux-docker:${{ matrix.architecture }}
-      volumes: 
-        # Montamos el Node funcional del host directamente en la ubicación esperada por las Actions de GitHub
-        - /__e/node24:/__e/node24:ro
     env:
       ANDROID_ROOT: /system
       ANDROID_DATA: /data
@@ -36,9 +33,6 @@ jobs:
       LANG: en_US.UTF-8
       TZ: UTC
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-    
       - name: Update package list
         timeout-minutes: 15
         run: |
@@ -58,7 +52,7 @@ jobs:
       - name: Fix executable bit for all binaries
         run: chmod -R o+x ${PREFIX}/bin
 
-      - name: Install bionic-libc nodejs for actions compatibility
+      - name: Install dependencies inside Termux Docker
         timeout-minutes: 15
         run: |
           attempt=0
@@ -68,12 +62,12 @@ jobs:
             set +e
             /entrypoint.sh apt-get install -y -o Dpkg::Options::="--force-confnew" openssl libc++ 
             install_status=$?
-            /entrypoint.sh pkg install -y nodejs-lts git curl libcurl libssh2
+            /entrypoint.sh pkg install -y nodejs-lts git curl libcurl libssh2 zip
             pkg_status=$?
             set -e
 
             if [ $install_status -eq 0 ] && [ $pkg_status -eq 0 ]; then
-              echo "Installation succeeded"
+              echo "Dependencies installed successfully"
               break
             else
               attempt=$((attempt + 1))
@@ -89,12 +83,15 @@ jobs:
             fi
           done
 
-      - name: Build Game
+      - name: Clone and Build Game
         run: |
-          chmod 777 -R .
+          # Permitir trabajar sobre cualquier directorio en Git
           /entrypoint.sh git config --global safe.directory '*'
-          /entrypoint.sh git clone https://github.com/${GITHUB_REPOSITORY}.git .
-          /entrypoint.sh git checkout "${GITHUB_REF_NAME}"
+          
+          # Clonar el repositorio actual de forma nativa e ingresar a él
+          /entrypoint.sh git clone --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
+          
+          # Descargar la ROM requerida y asignar permisos para la compilación de Android
           curl -L "${{ secrets.ROM }}" -o ./baserom.us.z64
           chmod +x .github/build-android.sh
           /entrypoint.sh .github/build-android.sh ${{ matrix.architecture }}
@@ -121,8 +118,9 @@ jobs:
     needs: build-android
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Clone Repository for Merging
+        run: |
+          git clone --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" .
 
       - name: Set up Java
         uses: actions/setup-java@v4
