@@ -1,3 +1,4 @@
+
 name: Build coop
 
 on:
@@ -23,7 +24,8 @@ jobs:
     container:
       image: termux/termux-docker:${{ matrix.architecture }}
       volumes: 
-        - /tmp/node24:/__e/node24  # Solución al error de entorno para Node 24
+        # Montamos el Node funcional del host directamente en la ubicación esperada por las Actions de GitHub
+        - /__e/node24:/__e/node24:ro
     env:
       ANDROID_ROOT: /system
       ANDROID_DATA: /data
@@ -68,13 +70,9 @@ jobs:
             install_status=$?
             /entrypoint.sh pkg install -y nodejs-lts git curl libcurl libssh2
             pkg_status=$?
-            
-            # Apunta el enlace simbólico al nuevo mapeo requerido por Node 24
-            ln -sf ${PREFIX}/bin /__e/node24/bin
-            ln_status=$?
             set -e
 
-            if [ $install_status -eq 0 ] && [ $pkg_status -eq 0 ] && [ $ln_status -eq 0 ]; then
+            if [ $install_status -eq 0 ] && [ $pkg_status -eq 0 ]; then
               echo "Installation succeeded"
               break
             else
@@ -213,3 +211,5 @@ jobs:
         with:
           name: sm64coopdx-universal-apk
           path: sm64coopdx.apk
+
+
