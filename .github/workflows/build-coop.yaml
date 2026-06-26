@@ -272,6 +272,15 @@ jobs:
           # Optionally set a maximum time for the job to ensure it doesn't run indefinitely
           timeout-minutes: 15
 
+        - name: Debug Build
+          run: |
+               pwd
+               ls -la
+               ls -la .github
+               /entrypoint.sh pwd
+               /entrypoint.sh ls -la
+               /entrypoint.sh ls -la .github
+                
         - name: Build
           run: chmod 777 -R . && /entrypoint.sh git config --global safe.directory '*' && /entrypoint.sh git clone https://github.com/${GITHUB_REPOSITORY}.git . && /entrypoint.sh git checkout "${GITHUB_REF_NAME}" && curl -L "${{ secrets.ROM }}" -o ./baserom.us.z64 && chmod +x .github/build-android.sh && /entrypoint.sh .github/build-android.sh ${{ matrix.architecture }}
 
