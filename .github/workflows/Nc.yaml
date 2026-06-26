@@ -1,0 +1,87 @@
+
+name: Build coop (Android Multi-Arch Nativo)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ android-dev ]
+  pull_request:
+    branches: [ android-dev ]
+
+jobs:
+  build-android:
+    if: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[build]')) && github.event.pull_request.draft == false }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configure Android SDK and NDK
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential git python3 libglew-dev libsdl2-dev libz-dev libcurl4-openssl-dev g++ zip unzip wget apksigner
+          
+          # Usamos el SDK preinstalado en el runner para agilizar la compilación y asegurar compatibilidad
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          echo "sdk.dir=$ANDROID_HOME" > $GITHUB_WORKSPACE/platform/local.properties
+          
+          # Localizamos dinámicamente la versión del NDK preinstalado en el sistema
+          NDK_PATH=$(find $ANDROID_HOME/ndk -maxdepth 1 -mindepth 1 | head -n 1)
+          if [ -z "$NDK_PATH" ]; then
+            # Si no se encuentra en la ruta estándar, usamos el fallback ndk-bundle
+            NDK_PATH="$ANDROID_HOME/ndk-bundle"
+          fi
+          echo "ndk.dir=$NDK_PATH" >> $GITHUB_WORKSPACE/platform/local.properties
+          echo "Android SDK localizado en: $ANDROID_HOME"
+          echo "Android NDK localizado en: $NDK_PATH"
+
+      - name: Copy ROM using actions secret
+        run: |
+          curl -L "${{ secrets.ROM }}" -o ./baserom.us.z64
+
+      - name: Build the game (Multi-Architecture)
+        run: |
+          # Compilar assets del juego base
+          make -j$(nproc) TOUCH_CONTROLS=1
+          
+          # Compilar e inicializar Gradle para generar el APK multi-arquitectura
+          chmod +x ./platform/gradlew
+          ./platform/gradlew assembleRelease
+          
+          # Firmar el APK universal generado
+          apksigner sign \
+            --key platform/android/key.pk8 \
+            --cert platform/android/certificate.pem \
+            platform/app/build/outputs/apk/release/app-release-unsigned.apk
+          
+          mv platform/app/build/outputs/apk/release/app-release-unsigned.apk build/us_pc/sm64coopdx.apk
+
+      - name: Generate hashes for all architectures
+        run: |
+          cd tools
+          g++ -std=c++17 -o hash_file hash_file.cpp
+          # Esto imprimirá en consola el hash sha256 de libmain.so para cada arquitectura compilada (arm, arm64, x86, x86_64)
+          for f in ../platform/app/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib/*/libmain.so; do
+              abi=$(basename $(dirname "$f"))
+              hash=$(./hash_file "$f")
+              echo "::notice title=libmain.so ($abi)::$hash"
+          done
+
+      - name: Zip the .apk package
+        run: |
+          cd ./build/us_pc
+          zip -r sm64coopdx_Android.zip sm64coopdx.apk
+      
+      - name: Upload multi-architecture APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sm64coopdx-android-multiarch
+          path: ./build/us_pc/sm64coopdx_Android.zip
+
+
